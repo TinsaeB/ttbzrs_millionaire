@@ -56,6 +56,9 @@ class MainWindow(ctk.CTk):
         self.create_main_content()
         self.create_help_panel()
         self._start_message_processing()
+        
+        # Handle window close button
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
     
     def _create_ui(self):
         self.create_sidebar()
@@ -76,6 +79,8 @@ class MainWindow(ctk.CTk):
                     self._add_chat_message(message['sender'], message['message'])
                 elif message['type'] == 'status':
                     self.update_status(message['status'], message['color'])
+                elif message['type'] == 'exit':
+                    break
                 
                 self.message_queue.task_done()
         except queue.Empty:
@@ -88,122 +93,91 @@ class MainWindow(ctk.CTk):
         """Add a message to the chat display with proper styling"""
         self.chat_display.configure(state="normal")
         
-        # Add timestamp
-        timestamp = datetime.now().strftime("%H:%M:%S")
+        # Add the message with appropriate formatting
+        if sender == "Assistant":
+            prefix = "🤖 Assistant:"
+            base_color = "#ff1493"  # Neon pink
+            prefix_style = {
+                "fg": base_color,
+                "font": ("Helvetica", 14, "bold"),
+                "spacing3": 10
+            }
+        else:
+            prefix = "👤 You:"
+            base_color = "#00ffff"  # Neon blue
+            prefix_style = {
+                "fg": base_color,
+                "font": ("Helvetica", 14, "bold"),
+                "spacing3": 10
+            }
+            
+        # Add the prefix with extra spacing
+        self.chat_display.insert("end", "\n" + prefix + "\n", prefix_style)
         
-        # Style based on sender
-        if sender == "You":
-            prefix = "👤"
-            sender_style = {
-                "fg": "#00ffff",  # Neon blue
-                "font": ("Helvetica", 12, "bold")
-            }
-            base_style = {
-                "fg": "#ffffff",  # White
-                "font": ("Helvetica", 11)
-            }
-            highlight_color = "#00ffff"  # Neon blue
-        elif sender == "Assistant":
-            prefix = "🤖"
-            sender_style = {
-                "fg": "#ff1493",  # Neon pink
-                "font": ("Helvetica", 12, "bold")
-            }
-            base_style = {
-                "fg": "#ffffff",  # White
-                "font": ("Helvetica", 11)
-            }
-            highlight_color = "#ff1493"  # Neon pink
-        else:  # System messages
-            prefix = "ℹ️"
-            sender_style = {
-                "fg": "#ffd700",  # Gold
-                "font": ("Helvetica", 12, "bold")
-            }
-            base_style = {
-                "fg": "#ffa500",  # Orange
-                "font": ("Helvetica", 11)
-            }
-            highlight_color = "#ffd700"  # Gold
-        
-        # Insert timestamp with style
-        self.chat_display.insert("end", f"[{timestamp}] ", {"fg": "#808080", "font": ("Helvetica", 10)})
-        
-        # Insert prefix and sender with style
-        self.chat_display.insert("end", f"{prefix} {sender}: ", sender_style)
-        
-        # Process markdown formatting
+        # Process and format the message with markdown
         lines = message.split('\n')
-        in_list = False
         in_code_block = False
-        code_block_buffer = []
+        code_buffer = []
         
         for line in lines:
-            # Handle code blocks with triple backticks
-            if line.startswith('```'):
+            # Handle code blocks
+            if line.strip().startswith('```'):
                 if in_code_block:
                     # End code block
-                    if code_block_buffer:
-                        self.chat_display.insert("end", '\n'.join(code_block_buffer) + '\n', {
-                            "fg": "#ffd700",  # Gold for code
-                            "font": ("Courier", 11),
-                            "bg": "#2d2d2d"  # Darker background for code
-                        })
-                    code_block_buffer = []
+                    if code_buffer:
+                        self.chat_display.insert("end", '\n'.join(code_buffer) + '\n', 
+                            {"fg": "#ffd700", "bg": "#2d2d2d", "font": ("Courier", 10)})
+                    code_buffer = []
                     in_code_block = False
                 else:
-                    # Start code block
                     in_code_block = True
                 continue
-            
+                
             if in_code_block:
-                code_block_buffer.append(line)
+                code_buffer.append(line)
                 continue
             
             # Handle bullet points
             if line.strip().startswith('- '):
-                if not in_list:
-                    in_list = True
                 line = '  • ' + line[2:]
-            elif in_list and not line.strip():
-                in_list = False
             
             # Process inline formatting
-            current_style = base_style.copy()
             parts = []
             current_text = ''
             i = 0
+            current_style = {"fg": "#ffffff", "font": ("Helvetica", 11)}
             
             while i < len(line):
                 if line[i:i+2] == '**' and i+2 < len(line):  # Bold
                     if current_text:
                         parts.append((current_text, current_style.copy()))
                         current_text = ''
-                    current_style['font'] = ("Helvetica", 11, "bold")
-                    current_style['fg'] = highlight_color
                     i += 2
-                    continue
-                elif line[i] == '`':  # Inline code
+                    end = line.find('**', i)
+                    if end != -1:
+                        parts.append((line[i:end], {"fg": base_color, "font": ("Helvetica", 11, "bold")}))
+                        i = end + 2
+                        continue
+                elif line[i:i+1] == '*' and i+1 < len(line):  # Italic
                     if current_text:
                         parts.append((current_text, current_style.copy()))
                         current_text = ''
-                    current_style = {
-                        "fg": "#ffd700",  # Gold for code
-                        "font": ("Courier", 11),
-                        "bg": "#2d2d2d"  # Darker background for code
-                    }
                     i += 1
-                    continue
-                elif line[i] == '*' and not line[i:i+2] == '**':  # Italic
+                    end = line.find('*', i)
+                    if end != -1:
+                        parts.append((line[i:end], {"fg": "#ffffff", "font": ("Helvetica", 11, "italic")}))
+                        i = end + 1
+                        continue
+                elif line[i:i+1] == '`':  # Inline code
                     if current_text:
                         parts.append((current_text, current_style.copy()))
                         current_text = ''
-                    if 'bold' in str(current_style.get('font', '')):
-                        current_style['font'] = ("Helvetica", 11, "bold italic")
-                    else:
-                        current_style['font'] = ("Helvetica", 11, "italic")
                     i += 1
-                    continue
+                    end = line.find('`', i)
+                    if end != -1:
+                        parts.append((line[i:end], {"fg": "#ffd700", "bg": "#2d2d2d", "font": ("Courier", 10)}))
+                        i = end + 1
+                        continue
                 
                 current_text += line[i]
                 i += 1
@@ -211,25 +185,25 @@ class MainWindow(ctk.CTk):
             if current_text:
                 parts.append((current_text, current_style))
             
-            # Insert processed line
+            # Insert the formatted line
             for text, style in parts:
                 self.chat_display.insert("end", text, style)
-            self.chat_display.insert("end", "\n", base_style)
+            self.chat_display.insert("end", "\n", {"fg": "#ffffff"})
         
         # Add extra newline at the end
-        self.chat_display.insert("end", "\n", base_style)
+        self.chat_display.insert("end", "\n", {"fg": "#ffffff"})
+        
+        # Auto-scroll to the bottom
+        self.chat_display.see("end")
+        self.chat_display.configure(state="disabled")
         
         # Store in session data
         self.session_data.append({
-            "timestamp": timestamp,
             "sender": sender,
-            "message": message
+            "message": message,
+            "timestamp": datetime.now().isoformat()
         })
-        
-        # Scroll to bottom
-        self.chat_display.see("end")
-        self.chat_display.configure(state="disabled")
-    
+
     def post_message(self, msg_type: str, **kwargs):
         """Post a message to the queue"""
         self.message_queue.put({'type': msg_type, **kwargs})
@@ -802,16 +776,30 @@ class MainWindow(ctk.CTk):
             loop.close()
     
     def clear_chat(self):
-        self.chat_display.configure(state="normal")
-        self.chat_display.delete("1.0", "end")
-        self.chat_display.configure(state="disabled")
-        self.session_data = []
-        
-        # Add welcome message again
-        self._add_chat_message("Assistant", "Starting a new chat session! How can I help you with your million dollars today?")
+        """Clear the chat display and start a new session after confirmation"""
+        if messagebox.askyesno("New Chat", "Start a new chat? This will clear the current conversation."):
+            self.chat_display.configure(state="normal")
+            self.chat_display.delete("1.0", "end")
+            self.chat_display.configure(state="disabled")
+            self.session_data = []
+            self._add_chat_message("Assistant", "Hi! How would you like to invest your million dollars?")
     
     def get_chat_history(self) -> str:
         return self.chat_display.get("1.0", "end-1c")
     
+    def on_closing(self):
+        """Handle window closing event"""
+        try:
+            # Stop the message processing thread
+            if hasattr(self, '_message_processor') and self._message_processor.is_alive():
+                self.message_queue.put({"type": "exit"})
+                self._message_processor.join(timeout=1.0)
+            
+            # Destroy the window
+            self.quit()
+        except Exception as e:
+            print(f"Error during closing: {e}")
+            self.destroy()
+
     def run(self):
         self.mainloop()

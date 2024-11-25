@@ -1,5 +1,11 @@
 import asyncio
 import customtkinter as ctk
+import os
+import sys
+
+# Add the project root directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from ttbzrs_millionaire.ui.splash_screen import SplashScreen
 from ttbzrs_millionaire.ui.main_window import MainWindow
 
